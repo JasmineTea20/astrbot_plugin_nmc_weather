@@ -1,0 +1,44 @@
+{
+  "cache_ttl": {
+    "description": "页面缓存时长（秒）",
+    "type": "int",
+    "default": 60,
+    "hint": "同一参数在此时长内重复请求不会重新抓取源站页面",
+    "slider": {"min": 0, "max": 600, "step": 10}
+  },
+  "timeout": {
+    "description": "单次请求超时（秒）",
+    "type": "int",
+    "default": 15
+  },
+  "cooldown": {
+    "description": "同一会话冷却（秒），0 表示关闭",
+    "type": "int",
+    "default": 5
+  },
+  "render_width": {
+    "description": "天气公报图片宽度（像素）",
+    "type": "int",
+    "default": 900
+  },
+  "page_split_height": {
+    "description": "公报单页最大高度（像素），超出自动分页",
+    "type": "int",
+    "default": 3000
+  },
+  "max_pages": {
+    "description": "公报最多发送几页",
+    "type": "int",
+    "default": 4
+  },
+  "bulletin_text_limit": {
+    "description": "文字版公报刊数（字符）",
+    "type": "int",
+    "default": 1200
+  },
+  "font_path": {
+    "description": "中文字体文件路径（留空自动探测）",
+    "type": "string",
+    "default": "/usr/share/fonts/chinese/msyh.ttc"
+  }
+}
