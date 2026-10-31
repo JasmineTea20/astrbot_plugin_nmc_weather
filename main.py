@@ -23,6 +23,8 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.core import AstrBotConfig
+from astrbot.core.message.components import Image as ImgComp
+from astrbot.core.message.components import Plain, Reply
 
 from . import bulletin as bulletin_mod
 from . import params
@@ -94,6 +96,22 @@ class NmcWeather(Star):
                     f.unlink(missing_ok=True)
         except OSError:
             pass
+
+    @staticmethod
+    def _quoted_result(event: AstrMessageEvent, caption: str, path: Path):
+        """每页都显式引用原消息。
+
+        显式带 Reply 后 chain 里出现非 Plain/Image 组件，框架的 reply_with_quote
+        就不会再插一条引用（避免双重引用）；也因此每页都能吃到引用。
+        """
+        chain = []
+        mid = getattr(getattr(event, "message_obj", None), "message_id", None)
+        if mid:
+            chain.append(Reply(id=mid))
+        if caption:
+            chain.append(Plain(caption))
+        chain.append(ImgComp.fromFileSystem(str(path)))
+        return event.chain_result(chain)
 
     @staticmethod
     def _ext(url: str) -> str:
@@ -271,15 +289,13 @@ class NmcWeather(Star):
                 return
             self._render_cache = (fingerprint, time.time(), pages)
 
-        head = "📢 天气公报"
-        if doc.get("author"):
-            head += f"\n{doc['author'][:80]}"
-        for i, png in enumerate(pages):
+        total = len(pages)
+        for i, png in enumerate(pages, 1):
             path = self._write(png, ".png")
-            result = event.make_result()
-            if i == 0:
-                result = result.message(head)
-            yield result.file_image(str(path))
+            head = f"📢 天气公报（{i}/{total}）" if total > 1 else "📢 天气公报"
+            if i == 1 and doc.get("author"):
+                head += f"\n{doc['author'][:80]}"
+            yield self._quoted_result(event, head, path)
 
     async def terminate(self):
         await self.client.close()
