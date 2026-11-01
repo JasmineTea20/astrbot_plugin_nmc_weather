@@ -1,5 +1,5 @@
 name: "nmcWeather"
 display_name: "中央气象台天气实况"
 desc: "抓取中央气象台最新天气实况图（天气图/卫星云图/雷达图/降水量/气温/风/能见度/强对流，每类支持二级参数）与天气公报（Pillow 渲染成图）。"
-version: "1.0.1"
+version: "1.0.2"
 author: "Hermes"

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from pathlib import Path
@@ -28,7 +29,7 @@ from astrbot.core.message.components import Plain, Reply
 
 from . import bulletin as bulletin_mod
 from . import params
-from .nmc import NmcClient, NmcError, absolutize
+from .nmc import NmcClient, NmcError, absolutize, compress_labels
 
 PLUGIN_NAME = "nmcWeather"
 DEFAULT_FONT = "/usr/share/fonts/chinese/msyh.ttc"
@@ -142,7 +143,7 @@ class NmcWeather(Star):
             return
 
         if res.unmatched:
-            yield event.plain_result(self._unknown_help(cat, res))
+            yield event.plain_result(await self._unknown_help(cat, res))
             return
         if not res.image_url:
             yield event.plain_result(
@@ -168,15 +169,44 @@ class NmcWeather(Star):
             result = result.url_image(res.image_url)
         yield result
 
-    def _unknown_help(self, cat: dict, res) -> str:
+    async def _unknown_help(self, cat: dict, res) -> str:
         lines = [f"❓ 「{res.unmatched}」不是{cat['name']}的可选参数。", ""]
         if cat["args"]:
             lines.append(f"用法：/{cat['name']} {cat['args']}")
             lines.append(f"默认：{cat['default']}")
             lines.append(f"示例：{cat['examples']}")
+
+        # 有子类型的选项补一句「全国逐日气温（平均/最高/最低）」
+        children: dict[str, list[str]] = {}
+        parent_sigs = {frozenset(o["label"] for o in nav["opts"]) for nav in res.navs}
+        targets: list[str] = []
         for nav in res.navs:
-            labels = " / ".join(o["label"] for o in nav["opts"])
-            lines.append(f"· {nav['key']}：{labels}")
+            for opt in nav["opts"]:
+                url = absolutize(opt["href"])
+                if url != res.url and url not in targets:
+                    targets.append(url)
+        targets = targets[:10]
+        if targets:
+            tasks = [asyncio.create_task(self.client.child_labels(u, parent_sigs)) for u in targets]
+            try:
+                done = await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=10)
+            except asyncio.TimeoutError:
+                done = []
+                for t in tasks:
+                    t.cancel()
+            for url, got in zip(targets, done):
+                if isinstance(got, list) and got:
+                    children[url] = got
+
+        for nav in res.navs:
+            parts = []
+            for opt in nav["opts"]:
+                sub = children.get(absolutize(opt["href"]))
+                if sub:
+                    parts.append(f"{opt['label']}（{'/'.join(compress_labels(sub))}）")
+                else:
+                    parts.append(opt["label"])
+            lines.append(f"· {nav['key']}：{' / '.join(parts)}")
         if not res.navs:
             lines.append("（该类别没有可调参数）")
         return "\n".join(lines)

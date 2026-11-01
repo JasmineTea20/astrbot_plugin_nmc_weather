@@ -137,6 +137,42 @@ def match_option(navs: list[dict], token: str) -> tuple[str, dict] | None:
     return None
 
 
+def _common_prefix(items: list[str]) -> str:
+    pre = items[0]
+    for it in items[1:]:
+        while pre and not it.startswith(pre):
+            pre = pre[:-1]
+    return pre
+
+
+def _trim_ok(trimmed: list[str]) -> bool:
+    if any(not t.strip() for t in trimmed):
+        return False
+    return not all(t.strip().isdigit() for t in trimmed)  # 只剩数字会看不懂
+
+
+def compress_labels(labels: list[str]) -> list[str]:
+    """去掉同组标签的公共前后缀，让错误提示更短。
+
+    日平均气温/日最高气温/日最低气温 → 平均/最高/最低
+    近10天降水量/近20天/近30天     → 10天降水量/20天降水量/30天降水量
+    """
+    if len(labels) < 2:
+        return labels
+    out = list(labels)
+    pre = _common_prefix(out)
+    if 0 < len(pre) < min(len(x) for x in out) - 1:
+        trimmed = [x[len(pre) :] for x in out]
+        if _trim_ok(trimmed):
+            out = trimmed
+    suf = _common_prefix([x[::-1] for x in out])[::-1]
+    if 0 < len(suf) < min(len(x) for x in out) - 1:
+        trimmed = [x[: len(x) - len(suf)] for x in out]
+        if _trim_ok(trimmed):
+            out = trimmed
+    return out
+
+
 def absolutize(href: str) -> str:
     return href if href.startswith("http") else BASE + href
 
@@ -166,6 +202,7 @@ class NmcClient:
         self._session: aiohttp.ClientSession | None = None
         self._page_cache: dict[str, tuple[float, str]] = {}
         self._img_cache: dict[str, tuple[float, bytes]] = {}
+        self._child_cache: dict[str, tuple[float, list[str]]] = {}
 
     async def session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -221,6 +258,33 @@ class NmcClient:
         if len(self._img_cache) > 60:
             self._img_cache.clear()
         return data
+
+    async def child_labels(self, href: str, parent_sigs: set[frozenset]) -> list[str]:
+        """抓选项目标页，找出父页没有的参数组 → 视为该选项的子类型。
+
+        NMC 的父页与子页往往共用同一个组名（都叫「类型」），所以不能按 key 判断，
+        只能比较「选项标签集合」：出现在子页但父页没有的组就是子类型组。
+        """
+        key = f"{href}|{len(parent_sigs)}"
+        hit = self._child_cache.get(key)
+        if hit and time.time() - hit[0] < 600:
+            return hit[1]
+        try:
+            html = await self.fetch_html(href)
+        except NmcError:
+            return []
+        labels: list[str] = []
+        for nav in parse_navs(html):
+            sig = frozenset(o["label"] for o in nav["opts"])
+            if sig in parent_sigs:
+                continue
+            # 子集说明只是同组选项的变体（如「北半球」没有「叠加卫星云图」），不是子类型
+            if any(sig <= psig for psig in parent_sigs):
+                continue
+            labels = [o["label"] for o in nav["opts"]]
+            break
+        self._child_cache[key] = (time.time(), labels)
+        return labels
 
     async def resolve(self, entry: str, tokens: list[str]) -> Resolved:
         """按参数逐级跳转，返回终点页的最新图片。"""
