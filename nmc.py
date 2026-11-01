@@ -151,6 +151,25 @@ def _trim_ok(trimmed: list[str]) -> bool:
     return not all(t.strip().isdigit() for t in trimmed)  # 只剩数字会看不懂
 
 
+_NUM_UNIT = re.compile(r"(\d+)(小时|分钟|天|日|时|年|月)?")
+
+
+def numeric_family(labels: list[str]) -> list[str] | None:
+    """一组标签只差数字时，压成「数字+单位」：10天全国最高气温实况图 → 10天。"""
+    if len(labels) < 2:
+        return None
+    pats = {_NUM_UNIT.sub("#", lb) for lb in labels}
+    if len(pats) != 1 or "#" not in next(iter(pats)):
+        return None
+    out = []
+    for lb in labels:
+        m = _NUM_UNIT.search(lb)
+        if not m:
+            return None
+        out.append(m.group(1) + (m.group(2) or ""))
+    return out
+
+
 def compress_labels(labels: list[str]) -> list[str]:
     """去掉同组标签的公共前后缀，让错误提示更短。
 
@@ -159,6 +178,9 @@ def compress_labels(labels: list[str]) -> list[str]:
     """
     if len(labels) < 2:
         return labels
+    numeric = numeric_family(labels)
+    if numeric:
+        return numeric
     out = list(labels)
     pre = _common_prefix(out)
     if 0 < len(pre) < min(len(x) for x in out) - 1:
