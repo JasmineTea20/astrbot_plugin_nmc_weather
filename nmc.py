@@ -115,25 +115,27 @@ def match_option(navs: list[dict], token: str) -> tuple[str, dict] | None:
     优先级：精确 → 数字/前缀（850→850hPa）→ 组内序号 → 子串。
     """
     t = _norm(token)
-    cands: list[tuple[str, int, dict]] = []
-    for nav in navs:
+    cands: list[tuple[int, str, int, dict]] = []
+    for gi, nav in enumerate(navs):
         for i, opt in enumerate(nav["opts"]):
-            cands.append((nav["key"], i, opt))
+            cands.append((gi, nav["key"], i, opt))
 
-    for key, _, opt in cands:
+    for _, key, _, opt in cands:
         if _norm(opt["label"]) == t:
             return key, opt
-    for key, _, opt in cands:
+    for _, key, _, opt in cands:
         label = _norm(opt["label"])
         if label.startswith(t) or (t and t.startswith(label)):
             return key, opt
     if token.isdigit():
-        for key, i, opt in cands:
+        for _, key, i, opt in cands:
             if i + 1 == int(token):
                 return key, opt
-    for key, _, opt in cands:
-        if t and t in _norm(opt["label"]):
-            return key, opt
+    # 子串匹配：取最短标签（更具体），同长时取靠后的组（NMC 把子类型组排在父组之后）
+    subs = [c for c in cands if t and t in _norm(c[3]["label"])]
+    if subs:
+        subs.sort(key=lambda c: (len(_norm(c[3]["label"])), -c[0], c[2]))
+        return subs[0][1], subs[0][3]
     return None
 
 
